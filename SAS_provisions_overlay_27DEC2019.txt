@@ -1,0 +1,80 @@
+
+data prov_ndata;
+input ID Stage ECL N_date :date9.;
+format n_date e8601da10.;
+month = put(n_date,monname.);
+datalines;
+1001030 2 20.46635874 31DEC2018 
+2005030 2 151.89921902 31DEC2018 
+2005040 2 752.1434742 31DEC2018 
+4200040 2 381.95786399 31DEC2018 
+4000670 1 54.242825626 31DEC2018 
+5090000 1 140.80432621 31DEC2018 
+5080050 1 46.757903196 31DEC2018 
+6001080 3 17838.516473 31DEC2018 
+6400600 1 1.4027319654 31DEC2018 
+;
+
+pros sort data=prov_ndata;
+by id n_date;
+run;
+
+proc transpose data=prov_ndata out=prov_trans (drop=_name_);
+by id;
+var stage;
+id month;
+run;
+
+data prov_nwide
+set prov_trans; /* get the wide dataset */
+length
+  month $9
+  count revised overlay 8
+;
+if _n_ = 1
+then do;
+  declare hash lookup();
+  lookup.definekey('count');
+  lookup.definedata('revised','month');
+  lookup.definedone();
+end;
+lookup.clear();
+count = 0;
+do until (last.id);
+  set prov_ndata;
+  by ID; count + 1 or 2;
+  if not last.id
+  then do;
+	
+  	if month1 = . and stage = 2 then month1 = count;
+	if month1 = . and stage = 3 then month1 = count;
+
+	if month2 = . and stage = 3 then month2 = count;
+    	if month2 = . and stage = 2 then month2 = count;
+
+
+    	if month3 = . and stage = 3 then month3 = count;
+	revised_ = ecl;     
+	month = put(n_date,monname.);
+    rc = lookup.add();
+	end; end;
+revised_ = .; 
+month = '';
+/* we now have the last observation for a given ID in the PDV */
+select (stage);
+  when (1) if month2 ne . or month3 ne .
+    then do;
+      count = max(month1,month2,month3);
+      rc = lookup.find(); /* retrieves revised, month for earliest switch to 2 or 3 */
+    end;
+  when (2) if month3 ne .
+    then do;
+      rc = lookup.find(key:month3); /* retrieves revised, month for month3 */
+    end;
+  when (3) month = '';
+end;
+overlay = revised - ecl;
+drop count month2 month3 rc stage ecl n_date;
+run;
+
+
